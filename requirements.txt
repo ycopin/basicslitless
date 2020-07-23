@@ -1,0 +1,7 @@
+numpy
+matplotlib
+shapely
+descartes
+configparser
+astropy
+astroquery
