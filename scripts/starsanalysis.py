@@ -12,7 +12,7 @@ from classes import *
 
 
 def total_overlap(cstar, residues, angle):
-   """ Gives the overlap on the PSF of the central star caused by its surroundings
+   """ Gives the overlap on the PSF of the central star caused by its surroundings.
    
    Parameters
    ----------
@@ -32,9 +32,9 @@ def total_overlap(cstar, residues, angle):
       residues = [residues]
    Xl = np.array([star.x for star in residues])
    Yl = np.array([star.y for star in residues])
-   orders = [star.order[1] for star in residues]
+   orders = [star.all_orders for star in residues]
    n = len(residues)
-   cx, cy, shape0 = cstar.x, cstar.y, cstar.order[1]
+   cx, cy, shape0 = cstar.x, cstar.y, cstar.all_orders
    mag0 = cstar.mag
    
    Pos = np.vstack([Xl, Yl])
@@ -47,11 +47,9 @@ def total_overlap(cstar, residues, angle):
 
    filtre = (np.abs(M[0]-cx) <= 2*w)*(np.abs(M[1]-cy) <= 2*h)
    L = []
-   L2 = []
    for x, x0, y, y0, i in zip(M[0][filtre], Xl[filtre], M[1][filtre], Yl[filtre], np.arange(0,n)[filtre]):
       L.append(translate(orders[i], xoff = x - x0, yoff = y - y0))
    shape = unary_union(L)
-   shape2 = unary_union(L2)
 
    t = shape0.intersection(shape).area
 
@@ -59,7 +57,8 @@ def total_overlap(cstar, residues, angle):
    return 100*t/shape0.area
    
 def best_angle(stars, config):
-   """returns the optimal angle for the dispersion of a spectrum around a star along with how far one can deviate from this angle
+   """returns the optimal angle for the dispersion of a spectrum around a star along with how far one can deviate from this angle.
+   
    Parameters
    ----------
    stars : list of star objects
@@ -111,7 +110,6 @@ def best_angle(stars, config):
       b_a = - np.pi + (angle + wid)%(np.pi)
    else : 
       b_a = (angle + wid)%(np.pi)
-
    return b_a, LTh, Overlap_list
 
 

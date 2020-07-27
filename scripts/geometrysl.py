@@ -53,16 +53,26 @@ def Order(n: int, x, y, mag, config, maglim, seeing):
    Returns
    -------
    out : shapely Polygon object"""
-   lmin, lmax, gpm, d2ccd, p2m, p2a = config.lambda_min, config.lambda_max, config.grooves_per_mm, config.distance2ccd, config.pixel2mm, config.pixel2arcsec
+   try : 
+      disperserate = False
+      lmin, lmax, gpm, d2ccd, p2m, p2a = config.lambda_min, config.lambda_max, config.grooves_per_mm, config.distance2ccd, config.pixel2mm, config.pixel2arcsec
+   except :
+      disperserate = True
+      lmin, lmax, dr, p2a = config.lambda_min, config.lambda_max, config.dispersion_ratio, config.pixel2arcsec
+   
    w = width(mag, maglim, seeing)/p2a
+   
    if n == 0:
       order = Point(x, y).buffer(w)
    elif type(n) == int:
-      hstart, hstop = n*np.tan(np.arcsin(lmin*gpm))*d2ccd/p2m, n*np.tan(np.arcsin(lmax*gpm))*d2ccd/p2m
+      if disperserate :
+         hstart, hstop = lmin/dr, lmax/dr
+      else :   
+         hstart, hstop = n*np.tan(np.arcsin(lmin*gpm))*d2ccd/p2m, n*np.tan(np.arcsin(lmax*gpm))*d2ccd/p2m
       h = hstart - hstop
       
       xmin, xmax = x +hstart, x+hstop
-      ymin, ymax = y-w, y+w
+      ymin, ymax = y-w/abs(n), y+w/abs(n)
       order = Polygon([[xmin,ymin],[xmin,ymax],[xmax,ymax],[xmax,ymin]])
    return order
 

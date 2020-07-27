@@ -292,7 +292,7 @@ def genSimulation(configpath, star, orders = [-1,0,1], seeing = 1):
    """
    config = configuration(configpath)
    imsize, pix2ars = config.ccd_imsize, config.pixel2arcsec
-
+   
    query = customSimbad.query_object(star)
    ra0, dec0, mag0 = query["RA_d"][0], query["DEC_d"][0], query["FLUX_V"][0]
    r = 2*imsize*config.pixel2arcsec/3600
@@ -305,7 +305,6 @@ def genSimulation(configpath, star, orders = [-1,0,1], seeing = 1):
    config.wcs.wcs.crval = [ra0,dec0]
    
    cra, cdec = config.wcs.wcs_pix2world([[imsize/2, imsize/2]], 0)[0]
-   
    stars = list_stars(result,config,maglim,seeing, orders)
    angle, LTh, Overlap_list = best_angle(stars, config)
    
@@ -362,17 +361,17 @@ def plot_all(stars, img, angle, config, LTh = [], Overlap_list = []):
       ax1.set_xlabel("Tilt angle (degree)")
       ax1.set_ylabel("Contamination (% of central spectrum surface area)")
 
-   for th, s in zip([0, angle], [ -1, 1]):
-      Angle_0 = Rotation_Around(np.vstack([[X0, X0], [ - n+m, n+m]]), [X0, Y0], th - np.pi/2)
-      ax2.plot(*Angle_0, 'white', alpha = 0.25)
-      M0 = np.abs(np.cos(th))*(Angle_0 - np.array([X0, Y0]))/5 + np.array([X0, Y0])
-      Xt0, Yt0 = M0[0, 0] + s*200, M0[1, 0] + s*200 
-      plt.text(Xt0, Yt0, 'Tilt : {:.0f}°'.format(180*(th)/np.pi), rotation = th*180/np.pi, rotation_mode = 'anchor', bbox = dict(boxstyle = "square", ec = (1., 0.5, 0.5), fc = (1., 0.8, 0.8), alpha = 0.5, color = 'white'))
+   # for th, s in zip([0, angle], [ -1, 1]):
+   #    Angle_0 = Rotation_Around(np.vstack([[X0, X0], [ - n+m, n+m]]), [X0, Y0], th - np.pi/2)
+   #    ax2.plot(*Angle_0, 'white', alpha = 0.25)
+   #    M0 = np.abs(np.cos(th))*(Angle_0 - np.array([X0, Y0]))/5 + np.array([X0, Y0])
+   #    Xt0, Yt0 = M0[0, 0] + s*200, M0[1, 0] + s*200 
+   #    plt.text(Xt0, Yt0, 'Tilt : {:.0f}°'.format(180*(th)/np.pi), rotation = th*180/np.pi, rotation_mode = 'anchor', bbox = dict(boxstyle = "square", ec = (1., 0.5, 0.5), fc = (1., 0.8, 0.8), alpha = 0.5, color = 'white'))
 
    orders_shape = unary_union([star.all_orders for star in stars[1:]])
-   ax2.add_patch(PolygonPatch(orders_shape, alpha = 0.7))
+   ax2.add_patch(PolygonPatch(orders_shape, alpha = 1, color = '#aaaaaa'))
    
-   ax2.add_patch(PolygonPatch(stars[0].all_orders, alpha = 0.7, color = 'red'))
+   ax2.add_patch(PolygonPatch(stars[0].all_orders, alpha = 1, color = 'red'))
 
    ax2.imshow(img, extent = (0, m, n, 0), cmap = 'gray')
    

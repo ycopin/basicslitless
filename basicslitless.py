@@ -1,1 +1,4 @@
-import scripts
+import classes
+import starsanalysis
+import geometrysl
+import simulationtools

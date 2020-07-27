@@ -1,8 +1,5 @@
-from simfromconfigtools import plot_all
-from simfromfitstools import genSuperposition
-from classes import *
+from simulationtools import plot_all, genSuperposition
 
-import numpy as np
 import matplotlib.pyplot as plt
 
 import time

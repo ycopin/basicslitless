@@ -5,3 +5,4 @@ descartes
 configparser
 astropy
 astroquery
+cv2

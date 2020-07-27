@@ -7,12 +7,12 @@ import astropy.units as u
 
 from geometrysl import *
 
+#Classes definition
 
 class configuration :
    """Regroups useful informations on a disperser"""
    def __init__(self, fichier = "default_conf"):
-      """Gathers informations from a configuration file.
-      fichier must be the path to a .ini file, containing the requiered informations (listed in the config/default.ini file).
+      """Gathers informations from a configuration file. \nfichier must be the path to a .ini file, containing the requiered informations (listed in the config/default.ini file).
       use "default_conf" as fichier to have a default configuration object"""
       parser = ConfigParser()
       if fichier == "default_conf":
@@ -28,27 +28,21 @@ class configuration :
          parser.read(fichier)
          self.obs_name = parser.get('instrument', 'OBS_NAME') # string
          self.ccd_imsize = int(parser.get('CCD', 'CCD_IMSIZE')) # px
-         self.pixel2mm = float(parser.get('CCD', 'CCD_PIXEL2MM')) # mm/px
          self.pixel2arcsec = float(parser.get('CCD', 'CCD_PIXEL2ARCSEC')) # arcsec/px
-         self.distance2ccd = float(parser.get('dispersers', 'DISTANCE2CCD')) # mm
-         self.grooves_per_mm = float(parser.get('dispersers', 'GROOVES_PER_MM')) # mm^ - 1
          self.lambda_min = float(parser.get('spectrum range', 'LAMBDA_MIN'))*1e-6 # mm
          self.lambda_max = float(parser.get('spectrum range', 'LAMBDA_MAX'))*1e-6 # mm
+         try :
+            self.pixel2mm = float(parser.get('CCD', 'CCD_PIXEL2MM')) # mm/px
+            self.distance2ccd = float(parser.get('dispersers', 'DISTANCE2CCD')) # mm
+            self.grooves_per_mm = float(parser.get('dispersers', 'GROOVES_PER_MM')) # mm^ - 1
+         except :
+            self.dispersion_ratio = float(parser.get('dispersers', 'DISPERSION_RATIO'))*1e-7 # mm/px
       self.wcs = WCS(naxis = 2)
       self.wcs.wcs.cdelt = [ - self.pixel2arcsec/3600, self.pixel2arcsec/3600]
       self.wcs.wcs.crpix = [self.ccd_imsize//2 + 1, self.ccd_imsize//2 + 1]
       self.wcs.wcs.crval = [0, 0]
       self.wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
-      
-   def set_wcs(self, R0, D0):
-      """Sets a basic world coordinate (using gnomonic projection) system which can later be adapted.
-      Parameters
-      ----------
-      R0 : float
-         The right ascension at the center of the ccd, in degree.
-      D0 : float
-         The declination at the center of the ccd, in degree."""
-      self.wcs.wcs.crval = [R0, D0]
+
 
 class star_class :
    """Contains useful caracteristics of a star observed through a slitless spectroscope"""
@@ -65,7 +59,6 @@ class star_class :
          Visible magnitude of the star.
       config : configuration
          configuration object containing useful informations for the analysis.
-      
       """
       if ra == 'd' and dec == 'd' and mag == 'd':
          self.ra = 0
@@ -109,10 +102,12 @@ class star_class :
          self.order[i] = translate(self.order[i],x_off, y_off)
       self.x, self.y = self.x + x_off, self.y + y_off
 
-      
-      
+
+#Functions definition
+
 def gen_orders(Ln, stars, config, maglim, seeing):
    """Sets the orders contained in Ln for all the stars in stars.
+   
    Parameters
    ----------
    Ln : list
@@ -131,23 +126,27 @@ def gen_orders(Ln, stars, config, maglim, seeing):
 
 def list_stars(table,config, maglim, seeing, orders):
    """Sets and lists stars from a table in star objects
+   
    Parameters
    ----------
    table : astropy table or equivalent
-      Contains informations on the visible stars on the ccd, the column containing the right ascensions of the stars must contain "ra" in its name, "dec" for the declination and "flux" for the visible magnitude. These three informations must be present for all of the stars. 
-      The angles must be given in degree
+      Contains informations on the visible stars on the ccd, the column containing the right ascensions of the stars must contain "ra" in its name, "dec" for the declination and "flux" for the visible magnitude. These three informations must be present for all of the stars. The angles must be given in degree
    config : configuration
       configuration object containing useful informations for the analysis.
    maglim : float 
       highest magnitude visible by the captor.
    seeing : float
       seeing, FWHM of the point spread function of the telescope.
+   orders : list
+      orders to take into account
       
    Returns
    -------
    L : list
-      list of star objects with their orders 0 and 1 already set.
+      list of star objects with their orders from the orders list set.
    """
+   print(orders)
+
    L = []
    
    ra_colname = [table.colnames[i] for i, j in enumerate(table.colnames) if 'ra' in j.lower()][0]
@@ -163,6 +162,7 @@ def list_stars(table,config, maglim, seeing, orders):
 
 def rotate_stars(stars, centre, angle):
    """Rotates the positions of a set of stars by an angle "angle" 
+   
    Parameters
    ----------
    stars : list of star objects
@@ -177,5 +177,10 @@ def rotate_stars(stars, centre, angle):
       M[:,i] = [stars[i].x,stars[i].y]
    Mr = Rotation_Around(M, centre, angle)
    for i in range(n):
+      x, y = stars[i].x, stars[i].y
+      new_x, new_y = Mr[:,i]
       stars[i].x, stars[i].y = Mr[:,i]
+      for n in stars[i].order :
+         stars[i].order[n] = translate(stars[i].order[n], new_x - x, new_y - y)
+      stars[i].all_orders = translate(stars[i].all_orders, new_x - x, new_y - y)
    
