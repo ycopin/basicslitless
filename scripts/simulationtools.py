@@ -19,7 +19,7 @@ customSimbad = Simbad()
 customSimbad.add_votable_fields('ra(d), dec(d), flux(V)')
 from astroquery.gaia import Gaia
 
-
+import astropy.units as u
 from astropy.io import fits
 from astropy.visualization import ZScaleInterval
 zscale = ZScaleInterval()
@@ -85,54 +85,54 @@ def align_stars(img = None, stars = None):
    """
    print("Work in progress, still doesn't work")
    return None
-   cstar = stars[0]
-   order = cstar.all_orders
-   X0, Y0 = cstar.x, cstar.y
-   
-   
-   img_copy = ((img - np.min(img))/(np.max(img)-np.min(img))*255).astype('uint8').T
-   
-   
-   n,m = img_copy.shape
-   x, y = np.meshgrid(np.arange(n), np.arange(m)) # make a canvas with coordinates
-   x, y = x.flatten(), y.flatten()
-   points = np.vstack((x,y)).T
-   grid = PolygonPatch(order).contains_points(points)
-   in_points = points[grid]
+   # cstar = stars[0]
+   # order = cstar.all_orders
+   # X0, Y0 = cstar.x, cstar.y
+   # 
+   # 
+   # img_copy = ((img - np.min(img))/(np.max(img)-np.min(img))*255).astype('uint8').T
+   # 
+   # 
+   # n,m = img_copy.shape
+   # x, y = np.meshgrid(np.arange(n), np.arange(m)) # make a canvas with coordinates
+   # x, y = x.flatten(), y.flatten()
+   # points = np.vstack((x,y)).T
+   # grid = PolygonPatch(order).contains_points(points)
+   # in_points = points[grid]
 
 
-   med = np.median(img_copy)
+ ###     med = np.median(img_copy)
 
 
-   img_copy[in_points[:,0], in_points[:,1]] = med
-   kernel = np.ones((5,5),np.float32)/25
-   dst = filter2D(img_copy,-1,kernel)
-   plt.imshow(dst) , plt.show()
-   
-   
-   order0s = [star.order[0] for star in stars]
-   
-   
-   angles = np.linspace(-np.pi,np.pi,100)
-   L = [0]*len(angles)
-   
-   
-   tot = np.sum(dst)
-   
-   for i in range(len(angles)) :
-      angle = angles[i]
-      for order0 in order0s:
-         shape = rotate(order0, angle, [X0,Y0],True)
-         a,b,c,d = np.floor(shape.bounds)
-         if a>0 and c<n and b>0 and d<m :
-            L[i] += dst[int(a):int(c),int(b):int(d)].sum()
-   
-   i_max = [i for i, j in enumerate(L) if j == max(L)][0]
-   
-   ccd_angle = angles[i_max]
-   
-   rotate_stars(stars, [X0,Y0], angle)
-   return(L, ccd_angle)
+ ###     img_copy[in_points[:,0], in_points[:,1]] = med
+   # kernel = np.ones((5,5),np.float32)/25
+   # dst = filter2D(img_copy,-1,kernel)
+   # plt.imshow(dst) , plt.show()
+   # 
+   # 
+   # order0s = [star.order[0] for star in stars]
+   # 
+   # 
+   # angles = np.linspace(-np.pi,np.pi,100)
+   # L = [0]*len(angles)
+   # 
+   # 
+   # tot = np.sum(dst)
+   # 
+   # for i in range(len(angles)) :
+   #    angle = angles[i]
+   #    for order0 in order0s:
+   #       shape = rotate(order0, angle, [X0,Y0],True)
+   #       a,b,c,d = np.floor(shape.bounds)
+   #       if a>0 and c<n and b>0 and d<m :
+   #          L[i] += dst[int(a):int(c),int(b):int(d)].sum()
+   # 
+   # i_max = [i for i, j in enumerate(L) if j == max(L)][0]
+   # 
+   # ccd_angle = angles[i_max]
+   # 
+   # rotate_stars(stars, [X0,Y0], angle)
+   # return(L, ccd_angle)
    
    
 def max_in_area(image,xmin,ymin,xmax,ymax):
@@ -361,22 +361,14 @@ def plot_all(stars, img, angle, config, LTh = [], Overlap_list = []):
       ax1.set_xlabel("Tilt angle (degree)")
       ax1.set_ylabel("Contamination (% of central spectrum surface area)")
 
-   # for th, s in zip([0, angle], [ -1, 1]):
-   #    Angle_0 = Rotation_Around(np.vstack([[X0, X0], [ - n+m, n+m]]), [X0, Y0], th - np.pi/2)
-   #    ax2.plot(*Angle_0, 'white', alpha = 0.25)
-   #    M0 = np.abs(np.cos(th))*(Angle_0 - np.array([X0, Y0]))/5 + np.array([X0, Y0])
-   #    Xt0, Yt0 = M0[0, 0] + s*200, M0[1, 0] + s*200 
-   #    plt.text(Xt0, Yt0, 'Tilt : {:.0f}°'.format(180*(th)/np.pi), rotation = th*180/np.pi, rotation_mode = 'anchor', bbox = dict(boxstyle = "square", ec = (1., 0.5, 0.5), fc = (1., 0.8, 0.8), alpha = 0.5, color = 'white'))
-
    orders_shape = unary_union([star.all_orders for star in stars[1:]])
-   ax2.add_patch(PolygonPatch(orders_shape, alpha = 1, color = '#aaaaaa'))
+   ax2.add_patch(PolygonPatch(orders_shape, alpha = 1, color = 'white',ec = 'black'))
+   
+   ax2.add_patch(PolygonPatch(unary_union([star.order[0] for star in stars[1:]]),color = 'white'))
    
    ax2.add_patch(PolygonPatch(stars[0].all_orders, alpha = 1, color = 'red'))
 
-   ax2.imshow(img, extent = (0, m, n, 0), cmap = 'gray')
-   
-   
-
+   ax2.imshow(img, extent = (0, m, n, 0), cmap = 'gray_r')
    
 
    ax2.axis('square')

@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 from configparser import ConfigParser
 from astropy.wcs import WCS
-import astropy.units as u
 
 
 from geometrysl import *
@@ -145,8 +144,6 @@ def list_stars(table,config, maglim, seeing, orders):
    L : list
       list of star objects with their orders from the orders list set.
    """
-   print(orders)
-
    L = []
    
    ra_colname = [table.colnames[i] for i, j in enumerate(table.colnames) if 'ra' in j.lower()][0]
