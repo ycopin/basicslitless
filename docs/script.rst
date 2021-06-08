@@ -26,7 +26,7 @@ optional arguments:
                         Orders to take into account as a comma separated list inside parenthesis
                         (default : (-1,0,1))
 
-.. figure:: Sim.*
+.. figure:: Sim.png
    :align: center
    :width: 80%
 
