@@ -17,20 +17,20 @@ parser.add_argument("-s", "--seeing",
                     help="Seeing in arcsec",
                     default=1., type=float)
 parser.add_argument("-O", "--orders",
-                    help ="Dispersion orders",
-                    default = "-1,0,+1")
+                    help="Dispersion orders",
+                    default="-1,0,+1")
 parser.add_argument("-o", "--output",
-                    help ="Output figure")
+                    help="Output figure")
 
 args = parser.parse_args()
 
 orders = [ int(i) for i in args.orders.split(',') ]
 
 stars, img, angles, config, LTh, Overlap_list = genSimulation(
-   args.config, args.star, orders, args.seeing)
+    args.config, args.star, orders, args.seeing)
 
 fig = plot_all(stars, img, angles, config, LTh, Overlap_list)
 if args.output:
-   fig.savefig(args.output)
+    fig.savefig(args.output)
 else:
-   plt.show()
+    plt.show()
