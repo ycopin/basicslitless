@@ -7,7 +7,6 @@ Main graphical script.
 import argparse
 
 from simulationtools import plot_all, genSimulation
-#from classes import *
 
 import matplotlib.pyplot as plt
 
