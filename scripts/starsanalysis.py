@@ -4,11 +4,7 @@
 
 __author__ = "Sadek Al-Jibouri <sadek.aljibouri@ens-lyon.fr>"
 
-# Importation des librairies
-
 from classes import *
-
-# Classes :
 
 
 def total_overlap(cstar, residues, angle):
@@ -64,23 +60,27 @@ def total_overlap(cstar, residues, angle):
 
 
 def best_angle(stars, config):
-    """returns the optimal angle for the dispersion of a spectrum around a star along with how far one can deviate from this angle.
+    """Returns the optimal angle for the dispersion of a spectrum around
+    a star along with how far one can deviate from this angle.
 
     Parameters
     ----------
     stars : list of star objects
-       The first star will be considered as the important one
+       The first star is the reference one
     config : Configuration
        made from a configuration file.
 
     Returns
     -------
     b_a : float
-       the angle (in radian) with the less contamination on the central star. 0 corresponds to a dispersion along the X axis and the angle is then mesured counterclockwise.
+       the angle (in radian) with the less contamination on the
+       central star. 0 corresponds to a dispersion along the X axis
+       and the angle is then mesured counterclockwise.
     wid : float
        the maximal deviation from this angle one can take without having too high a dispersion
     Overlap_list : list
        the list of contamination for 100 angles evenly spaced in between 0 and pi
+
     """
 
     cstar = stars[0]

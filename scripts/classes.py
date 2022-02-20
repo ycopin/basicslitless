@@ -11,8 +11,6 @@ from shapely.geometry import Polygon
 from shapely.affinity import rotate, translate
 from shapely.ops import unary_union
 
-from descartes.patch import PolygonPatch
-
 # Classes definition
 
 class Configuration:

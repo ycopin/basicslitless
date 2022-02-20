@@ -17,9 +17,11 @@ from astroquery.skyview import SkyView
 from astroquery.gaia import Gaia
 from astroquery.simbad import Simbad
 
-from starsanalysis import *
+from shapely.ops import unary_union
+from polygon import MultiPolygonPatch as PolygonPatch
 
-#from cv2 import resize,filter2D
+from starsanalysis import best_angle
+from classes import Configuration, list_stars
 
 customSimbad = Simbad()
 customSimbad.add_votable_fields('ra(d), dec(d), flux(V)')
@@ -28,8 +30,15 @@ customSimbad.add_votable_fields('ra(d), dec(d), flux(V)')
 
 def align_order1(img, stars):
     """
-    Returns the angle of dispersion for the first order of a a given star
-    The first star must be aligned with its representation on the image (see the wcs to do that). \n \n The angle is determined by finding the maximum of S(angle) with S the sum of the pixels' values under the first order shape of the star. Since the first order can be approximated as a long rectangle of bright pixels, this method works most of the time.
+    Returns the angle of dispersion for the first order of a a given star.
+
+    The first star must be aligned with its representation on the
+    image (see the wcs to do that).
+
+    The angle is determined by finding the maximum of S(angle) with S
+    the sum of the pixels' values under the first order shape of the
+    star. Since the first order can be approximated as a long
+    rectangle of bright pixels, this method works most of the time.
 
     Parameters
     ----------
@@ -38,6 +47,7 @@ def align_order1(img, stars):
     stars : list of Star objects
        The stars containing the first orders to align. stars[0].x and
        stars[0].y must correspond to a bright star position on the ccd.
+
     """
     n, m = img.shape
 
@@ -267,14 +277,14 @@ def genSuperposition(configpath, fitspath, star, pos, WCS):
 #    L2,A2 = align_stars(img, stars)
 #    print("Aligned Stars")
 #
-#    LTh = np.linspace(-180,180,len(L2))
+#    angles = np.linspace(-180,180,len(L2))
 #
 #    zscale = ZScaleInterval()
 #
-#    return (stars, zscale(img), config, A1, LTh, L2)
+#    return (stars, zscale(img), config, A1, angles, L2)
 
 
-def genSimulation(configpath, star, orders=[-1, 0, 1], seeing=1):
+def genSimulation(configpath, starname, orders=[-1, 0, 1], seeing=1., magoffset=5.):
     """
     Generates the arguments for plot_all to simulate the spectrogram of star
     through a slitless spectrogram which properties are contained in the
@@ -284,8 +294,8 @@ def genSimulation(configpath, star, orders=[-1, 0, 1], seeing=1):
     ----------
     configpath : string
        path to the slitless spectrograph configutation file
-    star : string
-       the studied star identifier
+    starname : string
+       the star name, to be resolved
     orders : list of integers
        the list of orders to represent.
     seeing : float
@@ -295,61 +305,73 @@ def genSimulation(configpath, star, orders=[-1, 0, 1], seeing=1):
     -------
     stars : list
        a list of Star objects, containing the stars to take into account
-       with their position on the captor,
+       with their position on the detector,
     img : 2d ndarray
        a background image for the stars,
     angle : float
-       the angle of dispersion used for the spectrogram,
+       the angle of dispersion used for the spectrogram [rad],
     config : Configuration
        the configuration used for the spectrogram,
-    LTh : list
-       a list of angles for Overlap_list,
-    Overlap_list : list
+    angles : list
+       a list of angles [deg] for contamination,
+    contaminations : list
        the list of the total overlap caused by surrounding stars on the
-       studied star spectrum
+       studied star spectrogram
     """
-    config = Configuration(configpath)
-    imsize, pix2ars = config.ccd_imsize, config.pixel2arcsec
 
-    query = customSimbad.query_object(star).filled()  # Turn masked values to NaN
+    print(f"Reading configuration {configpath!r}")
+    config = Configuration(configpath)
+    
+    imsize, pix2ars = config.ccd_imsize, config.pixel2arcsec
+    print(f"CCD size: {imsize}, scale: {pix2ars}\"/px")
+
+    print(f"Querying Simbad for {starname!r}...")
+    query = customSimbad.query_object(starname)
+    if query is None:
+        raise RuntimeError(f"Unresolved object {starname!r}.")
+
+    query = query.filled()  # Turn masked values to NaN
     ra0, dec0, mag0 = query["RA_d"][0], query["DEC_d"][0], query["FLUX_V"][0]
 
-    print(f"Simbad query for {star!r}: RA={ra0}, Dec={dec0}, V={mag0}")
+    print(f"{starname!r}: RA={ra0:.2f}, Dec={dec0:.2f}, V={mag0:.2f}")
     if np.isnan(mag0):
         print("No V-mag available, default to 17.")
         mag0 = 17.
 
     r = 2 * imsize * pix2ars / 3600
-    maglim = mag0 + 7.5
+    maglim = mag0 + magoffset
 
+    print(f"Querying Gaia for {starname!r}, mag < {maglim:.2f}...")
     job = Gaia.launch_job_async(
-        "SELECT ra, dec, DISTANCE(POINT('ICRS', ra, dec),POINT('ICRS', {0}, {1})) AS dist, phot_g_mean_mag AS flux FROM gaiadr2.gaia_source WHERE CONTAINS(POINT('ICRS', ra, dec),CIRCLE('ICRS', {0}, {1}, {2})) = 1 AND phot_g_mean_mag < {3} ORDER BY dist".format(
-            ra0,
-            dec0,
-            r,
-            maglim))
-    result = job.get_results()
+        f"SELECT ra, dec, DISTANCE(POINT('ICRS', ra, dec), "
+        f"POINT('ICRS', {ra0}, {dec0})) AS dist, "
+        f"phot_g_mean_mag AS flux "
+        f"FROM gaiadr2.gaia_source "
+        f"WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra0}, {dec0}, {r})) = 1 AND "
+        f"phot_g_mean_mag < {maglim} ORDER BY dist")
+    results = job.get_results()
+    print(f"{len(results)} entries")
 
-    ra0, dec0 = result['ra'][0], result['dec'][0]
+    ra0, dec0 = results['ra'][0], results['dec'][0]
     config.wcs.wcs.crval = [ra0, dec0]
 
     cra, cdec = config.wcs.wcs_pix2world([[imsize/2, imsize/2]], 0)[0]
-    stars = list_stars(result, config, maglim, seeing, orders)
-    angle, LTh, Overlap_list = best_angle(stars, config)
+    stars = list_stars(results, config, maglim, seeing, orders)
+    angle, angles, contaminations = best_angle(stars, config)
 
     for star in stars:
         star.rotate_orders(angle, use_radians=True)
 
-    LTh = LTh*180/np.pi
+    angles = angles * 180 / np.pi # [deg]
     img = SkyView.get_images(position='{}, {}'.format(cra, cdec),
                              survey='DSS',
                              width=imsize*pix2ars*u.arcsec,
                              height=imsize*pix2ars*u.arcsec)[0][0].data
 
-    return (stars, img, angle, config, LTh, Overlap_list)
+    return (stars, img, angle, config, angles, contaminations)
 
 
-def plot_all(stars, img, angle, config, LTh=[], Overlap_list=[]):
+def plot_all(stars, img, angle, config, angles=None, contaminations=None):
     """
     plots a simplistic view of the spectra on the region of a star of interest,
     with dispersion of the spectra being tilted with an angle 'angle' along with
@@ -367,16 +389,16 @@ def plot_all(stars, img, angle, config, LTh=[], Overlap_list=[]):
        made from a configuration file.
     angle : float
        dispersion angle in radian
-    LTh : list
-       List of angles for the Overlap list
-    Overlap_list : list
-       the list(s) of overlap for the angles in LTh
+    angles : list
+       List of angles [deg] for contamination.
+    contaminations : list
+       the list(s) of overlap for the angles.
 
     Returns
     -------
     out : None,
-       Plots the graph of Overlap_list(LTh) and the simulation of the spectra
-       on the captor over img.
+       Plots contamination as function of angle and a simulation of the spectrogram
+       on the detector over img.
     """
 
     name, imsize = config.obs_name, config.ccd_imsize
@@ -389,24 +411,24 @@ def plot_all(stars, img, angle, config, LTh=[], Overlap_list=[]):
 
     fig = plt.figure(figsize=(14, 6))
 
-    if len(LTh) == 0:
+    if angles is None:
         ax2 = fig.add_subplot(111)
     else:
         ax1, ax2 = fig.add_subplot(121), fig.add_subplot(122)
-        ax1.plot(LTh, Overlap_list)
+        ax1.plot(angles, contaminations)
         ax1.set_title("Evolution of the contamination for different tilts")
-        ax1.set_xlabel("Tilt angle (degree)")
-        ax1.set_ylabel("Contamination (% of central spectrum surface area)")
+        ax1.set_xlabel("Tilt angle [°]")
+        ax1.set_ylabel("Contamination [%]")
 
     orders_shape = unary_union([star.all_orders for star in stars[1:]])
-    ax2.add_patch(PolygonPatch(orders_shape, alpha=1,
+    ax2.add_collection(PolygonPatch(orders_shape, alpha=1,
                                color='white', ec='black'))
 
-    ax2.add_patch(PolygonPatch(
+    ax2.add_collection(PolygonPatch(
         unary_union([star.order[0] for star in stars[1:]]),
         color='white'))
 
-    ax2.add_patch(PolygonPatch(stars[0].all_orders, alpha=1, color='red'))
+    ax2.add_collection(PolygonPatch(stars[0].all_orders, alpha=1, color='red'))
 
     ax2.imshow(img, extent=(0, m, n, 0), cmap='gray_r')
 
@@ -415,6 +437,6 @@ def plot_all(stars, img, angle, config, LTh=[], Overlap_list=[]):
     ax2.set_ylabel("Y (pixels)")
     ax2.set_xlim([0, m])
     ax2.set_ylim([0, n])
-    ax2.set_title("{}, Deviation used : {:.2f}°".format(name, angle*180/np.pi))
+    ax2.set_title(f"{name}, dispersion direction: {angle*180/np.pi:.2f}°")
 
     return fig
