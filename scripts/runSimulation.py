@@ -6,9 +6,10 @@ Main graphical script.
 
 import argparse
 
-from simulationtools import plot_all, genSimulation
-
 import matplotlib.pyplot as plt
+import astropy.units as u
+
+import simulationtools as ST
 
 parser = argparse.ArgumentParser(description=__doc__)
 
@@ -25,14 +26,20 @@ parser.add_argument("-o", "--output", help="Output figure")
 args = parser.parse_args()
 
 orders = [ int(i) for i in args.orders.split(',') ]
-print(f"Dispersion orders:", orders)
+print("Dispersion orders:", orders)
 
-stars, img, best_angle, config, angles, contaminations = genSimulation(
-    args.config, args.starname, orders=orders, seeing=args.seeing, magoffset=args.magoffset)
+config = ST.read_config(args.config)
+stars, img, best_angle, angles, contaminations = ST.genSimulation(
+    config, args.starname, orders=orders, seeing=args.seeing, magoffset=args.magoffset)
 print(f"{len(stars)} stars")
 print(f"Best angle: {best_angle*57.29578:.1f}°")
 
-fig = plot_all(stars, img, best_angle, config, angles, contaminations)
+#fig = plot_all(stars, img, best_angle, config, angles, contaminations)
+fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6), tight_layout=True)
+ST.plot_angles(angles * u.degree, contaminations * u.percent, best_angle * u.radian, ax=ax1)
+ST.show_scene(img, stars, config, ax=ax2)
+#fig2 = plot_all(stars, img, best_angle, config, angles, contaminations)
+
 if args.output:
     fig.savefig(args.output)
 else:

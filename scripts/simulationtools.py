@@ -9,8 +9,8 @@ Calculations and plots for only a config file with no fits given
 import numpy as np
 import matplotlib.pyplot as plt
 
-from astropy.visualization import ZScaleInterval
-from astropy.io import fits
+#from astropy.visualization import ZScaleInterval
+#from astropy.io import fits
 import astropy.units as u
 
 from astroquery.skyview import SkyView
@@ -20,55 +20,22 @@ from astroquery.simbad import Simbad
 from shapely.ops import unary_union
 from polygon import PolygonCollection
 
-from starsanalysis import best_angle
+import starsanalysis as SA
 from classes import Configuration, list_stars
 
 customSimbad = Simbad()
 customSimbad.add_votable_fields('ra(d), dec(d), flux(V)')
 
 
-
-def intensity2mag(I, refmag, refI):
-    """Converts an intensity to a magnitude.
-
-    Parameters
-    ----------
-    I : float
-       intensity to convert.
-    refmag : float
-       reference magnitude.
-    refI : float
-       corresponding intensity
-
-    Returns
-    -------
-    A magnitude corresponding to I
-    """
+def read_config(configpath):
     
-    return refmag - 2.5*np.log10(I/refI)
-
-
-def mag2intensity(mag, refI, refmag):
-    """Converts a magnitude to an intensity.
-
-    Parameters
-    ----------
-    mag : float
-       magnitude to convert.
-    refI : float
-       reference intensity
-    refmag : float
-       corresponding magnitude.
-
-    Returns
-    -------
-    An intensity corresponding to mag
-    """
+    print(f"Reading configuration {configpath!r}")
+    config = Configuration(configpath)
     
-    return refI * 10**((refmag-mag)/2.5)
+    return config
 
-
-def genSimulation(configpath, starname, orders=[-1, 0, 1], seeing=1., magoffset=5.):
+    
+def genSimulation(config, starname, orders=[-1, 0, 1], seeing=1., magoffset=5.):
     """
     Generates the arguments for plot_all to simulate the spectrogram of star
     through a slitless spectrogram which properties are contained in the
@@ -94,8 +61,6 @@ def genSimulation(configpath, starname, orders=[-1, 0, 1], seeing=1., magoffset=
        a background image for the stars,
     angle : float
        the angle of dispersion used for the spectrogram [rad],
-    config : Configuration
-       the configuration used for the spectrogram,
     angles : list
        a list of angles [deg] for contamination,
     contaminations : list
@@ -103,9 +68,6 @@ def genSimulation(configpath, starname, orders=[-1, 0, 1], seeing=1., magoffset=
        studied star spectrogram
     """
 
-    print(f"Reading configuration {configpath!r}")
-    config = Configuration(configpath)
-    
     imsize, pix2ars = config.ccd_imsize, config.pixel2arcsec
     print(f"CCD size: {imsize}, scale: {pix2ars}\"/px")
 
@@ -141,10 +103,10 @@ def genSimulation(configpath, starname, orders=[-1, 0, 1], seeing=1., magoffset=
 
     cra, cdec = config.wcs.wcs_pix2world([[imsize/2, imsize/2]], 0)[0]
     stars = list_stars(results, config, maglim, seeing, orders)
-    angle, angles, contaminations = best_angle(stars, config)
+    best_angle, angles, contaminations = SA.best_angle(stars, config)
 
     for star in stars:
-        star.rotate_orders(angle, use_radians=True)
+        star.rotate_orders(best_angle, use_radians=True)
 
     angles = angles * 180 / np.pi # [deg]
     img = SkyView.get_images(position='{}, {}'.format(cra, cdec),
@@ -152,10 +114,10 @@ def genSimulation(configpath, starname, orders=[-1, 0, 1], seeing=1., magoffset=
                              width=imsize*pix2ars*u.arcsec,
                              height=imsize*pix2ars*u.arcsec)[0][0].data
 
-    return (stars, img, angle, config, angles, contaminations)
+    return (stars, img, best_angle, angles, contaminations)
 
 
-def plot_all(stars, img, angle, config, angles=None, contaminations=None):
+def plot_all(stars, img, best_angle, config, angles=None, contaminations=None):
     """
     plots a simplistic view of the spectra on the region of a star of interest,
     with dispersion of the spectra being tilted with an angle 'angle' along with
@@ -171,8 +133,8 @@ def plot_all(stars, img, angle, config, angles=None, contaminations=None):
        stars on this image)
     config : Configuration
        made from a configuration file.
-    angle : float
-       dispersion angle in radian
+    best_angle : float
+       best dispersion angle in radian
     angles : list
        List of angles [deg] for contamination.
     contaminations : list
@@ -204,23 +166,67 @@ def plot_all(stars, img, angle, config, angles=None, contaminations=None):
         ax1.set_xlabel("Tilt angle [°]")
         ax1.set_ylabel("Contamination [%]")
 
-    orders_shape = unary_union([star.all_orders for star in stars[1:]])
-    ax2.add_collection(PolygonCollection(orders_shape, alpha=1,
-                                         color='white', ec='black'))
+    # Plot spectrogram of reference star
+    ax2.add_collection(PolygonCollection(stars[0].all_orders,
+                                         alpha=1, lw=3, color='red'))
 
+    # Plot spectrograms of all neighboring stars
+    # ax2.add_collection(PolygonCollection(
+    #     unary_union([star.all_orders for star in stars[1:]]),
+    #     alpha=1, color='white', ec='black'))
     ax2.add_collection(PolygonCollection(
-        unary_union([star.order[0] for star in stars[1:]]),
-        color='white'))
+        unary_union([star.all_orders for star in stars[1:]]),
+        alpha=1, lw=2, color='blue', ec='blue'))
 
-    ax2.add_collection(PolygonCollection(stars[0].all_orders, alpha=1, color='red'))
-
+    # Background image
     ax2.imshow(img, extent=(0, m, n, 0), cmap='gray_r')
 
     ax2.axis('square')
-    ax2.set_xlabel("X (pixels)")
-    ax2.set_ylabel("Y (pixels)")
-    ax2.set_xlim([0, m])
-    ax2.set_ylim([0, n])
-    ax2.set_title(f"{name}, dispersion direction: {angle*180/np.pi:.2f}°")
+    ax2.set(xlabel="X [px]", ylabel="Y [px]",
+            xlim=[0, m], ylim=[0, n],
+            title=f"{name}, dispersion direction: {best_angle*180/np.pi:.2f}°")
 
     return fig
+
+
+def plot_angles(angles, contaminations, best_angle, ax=None):
+    
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    ax.plot(angles.to(u.degree), contaminations)
+    ax.set(title=f"Best angle: {best_angle.to(u.deg):.1f}",
+           xlabel="Dispersion angle [°]",
+           ylabel="Contamination [%]")
+
+    return ax
+
+
+def show_scene(bkgimg, stars, config, ax=None):
+
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    name, imsize = config.obs_name, config.ccd_imsize
+    n, m = bkgimg.shape
+    if (n, m) == (300, 300):
+        n, m = imsize, imsize
+
+    # Plot spectrogram of reference star
+    ax.add_collection(PolygonCollection(stars[0].all_orders,
+                                        alpha=1, lw=3, color='red'))
+
+    # Plot spectrograms of all neighboring stars
+    ax.add_collection(PolygonCollection(
+        unary_union([star.all_orders for star in stars[1:]]),
+        alpha=1, lw=2, color='blue', ec='blue'))
+
+    # Background image
+    ax.imshow(bkgimg, extent=(0, m, n, 0), cmap='gray_r')
+
+    ax.axis('square')
+    ax.set(xlabel="X [px]", ylabel="Y [px]",
+           xlim=[0, m], ylim=[0, n],
+           title=f"Simulation: {name}")
+
+    return ax

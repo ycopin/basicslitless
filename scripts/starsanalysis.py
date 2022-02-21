@@ -4,8 +4,11 @@
 
 __author__ = "Sadek Al-Jibouri <sadek.aljibouri@ens-lyon.fr>"
 
-from classes import *
+import numpy as np
 
+from geometrysl import rotate_around
+from shapely.ops import unary_union
+from shapely.affinity import translate
 
 def total_overlap(cstar, residues, angle):
     """
