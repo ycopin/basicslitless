@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 #from astropy.visualization import ZScaleInterval
 #from astropy.io import fits
 import astropy.units as u
+from astropy.wcs import WCS
 
 from astroquery.skyview import SkyView
 from astroquery.gaia import Gaia
@@ -28,14 +29,14 @@ customSimbad.add_votable_fields('ra(d), dec(d), flux(V)')
 
 
 def read_config(configpath):
-    
+
     print(f"Reading configuration {configpath!r}")
     config = Configuration(configpath)
-    
+
     return config
 
-    
-def genSimulation(config, starname, orders=[-1, 0, 1], seeing=1., magoffset=5.):
+
+def genSimulation(config, starname, orders=[-1, 0, 1], seeing=1., magoffset=5., survey="DSS"):
     """
     Generates the arguments for plot_all to simulate the spectrogram of star
     through a slitless spectrogram which properties are contained in the
@@ -51,6 +52,11 @@ def genSimulation(config, starname, orders=[-1, 0, 1], seeing=1., magoffset=5.):
        the list of orders to represent.
     seeing : float
        the wanted seeing for the spectrogram in arcseconds, 1 arcsec by default
+    magoffset : float
+       limit magnitude offset, 5 mag by default
+    survey : string
+       SkyView survey for the background image
+       (see https://astroquery.readthedocs.io/en/latest/skyview/skyview.html)
 
     Returns
     -------
@@ -68,8 +74,7 @@ def genSimulation(config, starname, orders=[-1, 0, 1], seeing=1., magoffset=5.):
        studied star spectrogram
     """
 
-    imsize, pix2ars = config.ccd_imsize, config.pixel2arcsec
-    print(f"CCD size: {imsize}, scale: {pix2ars}\"/px")
+    print(f"CCD size: {config.ccd_imsize}, scale: {config.pixel2arcsec}\"/px")
 
     print(f"Querying Simbad for {starname!r}...")
     query = customSimbad.query_object(starname)
@@ -79,29 +84,32 @@ def genSimulation(config, starname, orders=[-1, 0, 1], seeing=1., magoffset=5.):
     query = query.filled()  # Turn masked values to NaN
     ra0, dec0, mag0 = query["RA_d"][0], query["DEC_d"][0], query["FLUX_V"][0]
 
-    print(f"{starname!r}: RA={ra0:.2f}, Dec={dec0:.2f}, V={mag0:.2f}")
+    print(f"{starname!r}: RA={ra0:.6f}, Dec={dec0:.6f}, V={mag0:.2f}")
     if np.isnan(mag0):
         print("No V-mag available, default to 17.")
         mag0 = 17.
 
-    r = 2 * imsize * pix2ars / 3600
+    radius = config.ccd_imsize * config.pixel2arcsec / 3600  # [deg]
     maglim = mag0 + magoffset
 
-    print(f"Querying Gaia for {starname!r}, mag < {maglim:.2f}...")
-    job = Gaia.launch_job_async(
-        f"SELECT ra, dec, DISTANCE(POINT('ICRS', ra, dec), "
-        f"POINT('ICRS', {ra0}, {dec0})) AS dist, "
-        f"phot_g_mean_mag AS flux "
-        f"FROM gaiadr2.gaia_source "
-        f"WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra0}, {dec0}, {r})) = 1 AND "
-        f"phot_g_mean_mag < {maglim} ORDER BY dist")
+    catalog = "gaiadr2.gaia_source"
+    mag = "phot_g_mean_mag"
+    print(f"Querying Gaia:{catalog} for {starname!r}, {mag} < {maglim:.2f}:")
+    query = (f"SELECT ra, dec, "
+             f"DISTANCE(POINT('ICRS', ra, dec), POINT('ICRS', {ra0}, {dec0})) AS dist, "
+             f"{mag} AS mag "
+             f"FROM {catalog} "
+             f"WHERE CONTAINS(POINT('ICRS', ra, dec), CIRCLE('ICRS', {ra0}, {dec0}, {radius})) = 1 "
+             f"AND {mag} < {maglim} "
+             f"ORDER BY dist")
+    print(query)
+    job = Gaia.launch_job_async(query)
     results = job.get_results()
     print(f"{len(results)} entries")
 
     ra0, dec0 = results['ra'][0], results['dec'][0]
     config.wcs.wcs.crval = [ra0, dec0]
 
-    cra, cdec = config.wcs.wcs_pix2world([[imsize/2, imsize/2]], 0)[0]
     stars = list_stars(results, config, maglim, seeing, orders)
     best_angle, angles, contaminations = SA.best_angle(stars, config)
 
@@ -109,15 +117,18 @@ def genSimulation(config, starname, orders=[-1, 0, 1], seeing=1., magoffset=5.):
         star.rotate_orders(best_angle, use_radians=True)
 
     angles = angles * 180 / np.pi # [deg]
-    img = SkyView.get_images(position='{}, {}'.format(cra, cdec),
-                             survey='DSS',
-                             width=imsize*pix2ars*u.arcsec,
-                             height=imsize*pix2ars*u.arcsec)[0][0].data
 
-    return (stars, img, best_angle, angles, contaminations)
+    cra, cdec = config.wcs.wcs_pix2world([[config.ccd_imsize/2] * 2], 0)[0]
+    width  = config.ccd_imsize * config.pixel2arcsec * u.arcsec  # [arcsec]
+    print(f"Querying SkyView.{survey} around RA={cra:.6f}, Dec={cdec:.6f} "
+          f"[{width:.2f}\"×{width:.2f}\"]...")
+    hdu = SkyView.get_images(position=f"{cra}, {cdec}",
+                             survey=survey, width=width, height=width)[0][0]
+
+    return (stars, hdu, best_angle, angles, contaminations)
 
 
-def plot_all(stars, img, best_angle, config, angles=None, contaminations=None):
+def plot_all(stars, hdu, best_angle, config, angles=None, contaminations=None):
     """
     plots a simplistic view of the spectra on the region of a star of interest,
     with dispersion of the spectra being tilted with an angle 'angle' along with
@@ -147,11 +158,9 @@ def plot_all(stars, img, best_angle, config, angles=None, contaminations=None):
        on the detector over img.
     """
 
-    name, imsize = config.obs_name, config.ccd_imsize
-    n, m = img.shape
-
+    n, m = hdu.data.shape
     if (n, m) == (300, 300):
-        n, m = imsize, imsize
+        n = m = config.ccd_imsize
 
     X0, Y0 = stars[0].x, stars[0].y
 
@@ -179,18 +188,18 @@ def plot_all(stars, img, best_angle, config, angles=None, contaminations=None):
         alpha=1, lw=2, color='blue', ec='blue'))
 
     # Background image
-    ax2.imshow(img, extent=(0, m, n, 0), cmap='gray_r')
+    ax2.imshow(hdu.data, extent=(0, m, n, 0), cmap='gray_r')
 
     ax2.axis('square')
     ax2.set(xlabel="X [px]", ylabel="Y [px]",
             xlim=[0, m], ylim=[0, n],
-            title=f"{name}, dispersion direction: {best_angle*180/np.pi:.2f}°")
+            title=f"{config.obs_name}, dispersion direction: {best_angle*180/np.pi:.2f}°")
 
     return fig
 
 
 def plot_angles(angles, contaminations, best_angle, ax=None):
-    
+
     if ax is None:
         fig, ax = plt.subplots()
 
@@ -202,31 +211,47 @@ def plot_angles(angles, contaminations, best_angle, ax=None):
     return ax
 
 
-def show_scene(bkgimg, stars, config, ax=None):
+def show_scene(hdu, stars, config, ax=None):
 
-    if ax is None:
-        fig, ax = plt.subplots()
-
-    name, imsize = config.obs_name, config.ccd_imsize
+    bkgimg = hdu.data
     n, m = bkgimg.shape
     if (n, m) == (300, 300):
-        n, m = imsize, imsize
+        n = m = config.ccd_imsize
+
+    # Background image
+    print("Background image WCS")
+    wcs = WCS(hdu.header)
+    wcs.printwcs()
+
+    print("Configuration WCS")
+    config.wcs.printwcs()
+
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(1, 1, projection=wcs)
+    else:                       # Replace old ax by new one at same position
+        ax2 = ax.figure.add_axes(ax.get_position().bounds, projection=wcs)
+        ax.remove()
+        ax = ax2
+
+    ax.imshow(hdu.data, cmap='gray_r')
+    ax.coords.grid(True, color='green', ls='solid')
+    ax.coords[0].set_axislabel(wcs.wcs.ctype[0])
+    ax.coords[1].set_axislabel(wcs.wcs.ctype[1])
+
+    # ra, dec, mag = np.array([ [s.ra, s.dec, s.mag] for s in stars ]).T
+    # ax.scatter(ra, dec, s=20*10**(0.4*(mag[0] - mag)), marker='+',
+    #            transform=ax.get_transform('world'))
 
     # Plot spectrogram of reference star
     ax.add_collection(PolygonCollection(stars[0].all_orders,
-                                        alpha=1, lw=3, color='red'))
+                                        alpha=1, lw=3, color='red',
+                                        transform=ax.get_transform(config.wcs)))
 
     # Plot spectrograms of all neighboring stars
     ax.add_collection(PolygonCollection(
         unary_union([star.all_orders for star in stars[1:]]),
-        alpha=1, lw=2, color='blue', ec='blue'))
-
-    # Background image
-    ax.imshow(bkgimg, extent=(0, m, n, 0), cmap='gray_r')
-
-    ax.axis('square')
-    ax.set(xlabel="X [px]", ylabel="Y [px]",
-           xlim=[0, m], ylim=[0, n],
-           title=f"Simulation: {name}")
+        alpha=1, lw=2, color='blue', ec='blue',
+        transform=ax.get_transform(config.wcs)))
 
     return ax

@@ -1,4 +1,4 @@
-# Time-stamp: <2021-06-15 16:01:00 ycopin>
+# Time-stamp: <2022-02-25 20:22:37 ycopin>
 
 import numpy as np
 from configparser import ConfigParser
@@ -32,7 +32,7 @@ class Configuration:
             self.pixel2mm = 24e-3  # mm/px
             self.pixel2arcsec = 0.401  # arcsec/px
             self.distance2ccd = 55  # mm
-            self.grooves_per_mm = 350  # mm^ - 1
+            self.grooves_per_mm = 350  # 1/mm
             self.lambda_min = 300*1e-6  # mm
             self.lambda_max = 1100*1e-6  # mm
         else:
@@ -46,18 +46,16 @@ class Configuration:
             try:
                 self.pixel2mm = float(parser.get('CCD', 'CCD_PIXEL2MM'))  # mm/px
                 self.distance2ccd = float(parser.get('dispersers', 'DISTANCE2CCD'))  # mm
-                self.grooves_per_mm = float(parser.get('dispersers', 'GROOVES_PER_MM'))  # mm^ - 1
+                self.grooves_per_mm = float(parser.get('dispersers', 'GROOVES_PER_MM'))  # 1/mm
             except BaseException:
-                self.dispersion_ratio = float(
-                    parser.get(
-                        'dispersers',
-                        'DISPERSION_RATIO'))*1e-7  # mm/px
+                self.dispersion_ratio = float(parser.get('dispersers', 'DISPERSION_RATIO'))*1e-7  # mm/px
 
         self.wcs = WCS(naxis=2)
-        self.wcs.wcs.cdelt = [ - self.pixel2arcsec/3600, self.pixel2arcsec/3600]
-        self.wcs.wcs.crpix = [self.ccd_imsize//2 + 1, self.ccd_imsize//2 + 1]
-        self.wcs.wcs.crval = [0, 0]
+        self.wcs.wcs.cdelt = [-self.pixel2arcsec/3600, self.pixel2arcsec/3600]
+        self.wcs.wcs.crpix = [self.ccd_imsize//2 + 1] * 2
+        self.wcs.wcs.crval = [0, 0]  # To be updated later on after resolution
         self.wcs.wcs.ctype = ["RA---TAN", "DEC--TAN"]
+
 
 
 class Star:
@@ -95,6 +93,10 @@ class Star:
             config = Configuration()
         self.x, self.y = config.wcs.wcs_world2pix([[self.ra, self.dec]], 0)[0]
         self.all_orders = Polygon()
+
+    def __str__(self):
+
+        return f"Star: RA={self.ra}, Dec={self.dec}, mag={self.mag})"
 
     def set_orders(self, Ln: list, config, maglim=15, seeing=1):
         """
@@ -178,28 +180,17 @@ def list_stars(table, config, maglim, seeing, orders):
 
     Returns
     -------
-    L : list
+    alist : list
        list of star objects with their orders from the orders list set.
     """
 
-    L = []
+    alist = [ Star(ra, dec, mag, config)
+              for ra, dec, mag in table[['ra', 'dec', 'mag']]
+              if np.isreal(mag) ]
 
-    ra_colname = [ colname for colname in table.colnames
-                   if 'ra' in colname.lower() ][0]
-    dec_colname = [ colname for colname in table.colnames
-                    if 'dec' in colname.lower() ][0]
-    mag_colname = [ colname for colname in table.colnames
-                    if 'flux' in colname.lower() ][0]
+    gen_orders(orders, alist, config, maglim, seeing)
 
-    for ra, dec, mag in zip(table[ra_colname],
-                            table[dec_colname],
-                            table[mag_colname]):
-        if np.isreal(mag):
-            L.append(Star(ra, dec, mag, config))
-
-    gen_orders(orders, L, config, maglim, seeing)
-
-    return L
+    return alist
 
 
 def rotate_stars(stars, centre, angle):
